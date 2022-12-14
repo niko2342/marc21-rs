@@ -1,5 +1,5 @@
 [package]
-name = "marc21-toolkit"
+name = "marc21-rs"
 version = "0.1.0"
 edition = "2021"
 authors = ["Nico Wagner <nwagner@protonmail.com>"]

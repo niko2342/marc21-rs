@@ -1,4 +1,4 @@
-use nom::character::complete::satisfy;
+use nom::character::complete::{one_of, satisfy};
 use nom::error::{FromExternalError, ParseError};
 use nom::multi::fold_many_m_n;
 use nom::{Finish, IResult};
@@ -7,6 +7,7 @@ use nom::{Finish, IResult};
 #[derive(Debug, PartialEq, Eq)]
 pub struct Leader {
     pub(crate) record_len: u32,
+    pub(crate) record_status: char,
 }
 
 /// An error that can occur when parsing the leader field.
@@ -14,6 +15,9 @@ pub struct Leader {
 pub enum ParseLeaderError {
     #[error("invalid record length")]
     InvalidRecordLength,
+
+    #[error("invalid record status")]
+    InvalidRecordStatus,
 
     #[error("incomplete leader, missing: {0:?}")]
     Incomplete(nom::Needed),
@@ -69,7 +73,7 @@ impl Leader {
     ///
     /// # fn main() { example().unwrap(); }
     /// fn example() -> anyhow::Result<()> {
-    ///     let leader = Leader::from_bytes(b"00827")?;
+    ///     let leader = Leader::from_bytes(b"00827n")?;
     ///     assert_eq!(leader.record_length(), 827);
     ///
     ///     Ok(())
@@ -93,7 +97,7 @@ impl Leader {
     ///
     /// # fn main() { example().unwrap(); }
     /// fn example() -> anyhow::Result<()> {
-    ///     let leader = Leader::from_bytes(b"00827")?;
+    ///     let leader = Leader::from_bytes(b"00827n")?;
     ///     assert_eq!(leader.record_length(), 827);
     ///
     ///     Ok(())
@@ -101,6 +105,25 @@ impl Leader {
     /// ```
     pub fn record_length(&self) -> u32 {
         self.record_len
+    }
+
+    /// Returns the status code of the record.
+    ///
+    /// # Example
+    ///
+    /// ```rust
+    /// use marc21::Leader;
+    ///
+    /// # fn main() { example().unwrap(); }
+    /// fn example() -> anyhow::Result<()> {
+    ///     let leader = Leader::from_bytes(b"00827n")?;
+    ///     assert_eq!(leader.record_status(), 'n');
+    ///
+    ///     Ok(())
+    /// }
+    /// ```
+    pub fn record_status(&self) -> char {
+        self.record_status
     }
 }
 
@@ -120,11 +143,26 @@ fn parse_record_len(i: &[u8]) -> ParseResult<u32> {
     )(i)
 }
 
+/// Parse the record status field.
+#[inline]
+fn parse_record_status(i: &[u8]) -> ParseResult<char> {
+    one_of("acdnosx")(i)
+}
+
 pub(crate) fn parse_leader(i: &[u8]) -> ParseResult<Leader> {
     let (i, record_len) = parse_record_len(i)
         .map_err(|_| ParseLeaderError::InvalidRecordLength)?;
 
-    Ok((i, Leader { record_len }))
+    let (i, record_status) = parse_record_status(i)
+        .map_err(|_| ParseLeaderError::InvalidRecordStatus)?;
+
+    Ok((
+        i,
+        Leader {
+            record_len,
+            record_status,
+        },
+    ))
 }
 
 #[cfg(test)]
@@ -135,8 +173,9 @@ mod tests {
 
     #[test]
     fn test_leader_from_bytes() -> anyhow::Result<()> {
-        let leader = Leader::from_bytes(b"00123")?;
+        let leader = Leader::from_bytes(b"00123d")?;
         assert_eq!(leader.record_length(), 123);
+        assert_eq!(leader.record_status(), 'd');
 
         assert!(Leader::from_bytes(b"1234").is_err());
         Ok(())
@@ -149,5 +188,14 @@ mod tests {
         assert_finished_and_eq!(parse_record_len(b"00000"), 0);
         assert_error!(parse_record_len(b"-1000"));
         assert_error!(parse_record_len(b"1234"));
+    }
+
+    #[test]
+    fn test_parse_record_status() {
+        for c in "acdnosx".chars() {
+            assert_finished_and_eq!(parse_record_status(&[c as u8]), c);
+        }
+
+        assert_error!(parse_record_status(b"b"));
     }
 }
